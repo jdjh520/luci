@@ -569,40 +569,25 @@ function get_interface(self, i)
 end
 
 function get_interfaces(self)
+	local iface
 	local ifaces = { }
-	local normalifs = { }
-	local wirelessifs = { }
+	local nfs = { }
 
 	-- find normal interfaces
 	_uci:foreach("network", "interface",
 		function(s)
 			for iface in utl.imatch(s.ifname) do
-				if _wifi_iface(iface) then
-					wirelessifs[iface] = interface(iface)
-				elseif not _iface_ignore(iface) and not _iface_virtual(iface) then
-					normalifs[iface] = interface(iface)
+				if not _iface_ignore(iface) and not _iface_virtual(iface) and not _wifi_iface(iface) then
+					nfs[iface] = interface(iface)
 				end
 			end
 		end)
-		
+
 	for iface in utl.kspairs(_interfaces) do
-		if _wifi_iface(iface) then
-			wirelessifs[iface] = interface(iface)
-		elseif not _iface_ignore(iface) and not _iface_virtual(iface)then
-			normalifs[iface] = interface(iface)
+		if not (nfs[iface] or _iface_ignore(iface) or _iface_virtual(iface) or _wifi_iface(iface)) then
+			nfs[iface] = interface(iface)
 		end
 	end
-
-	-- find wifi interfaces
-	local num = { }
-	_uci:foreach("wireless", "wifi-iface",
-		function(s)
-			if s.device then
-				num[s.device] = num[s.device] and num[s.device] + 1 or 1
-				local i = "%s.network%d" %{ s.device, num[s.device] }
-				wirelessifs[i] = interface(i)
-			end
-		end)
 
 	-- find vlan interfaces
 	_uci:foreach("network", "switch_vlan",
@@ -614,11 +599,12 @@ function get_interfaces(self)
 				return
 			end
 
+			local pnum, ptag
 			for pnum, ptag in s.ports:gmatch("(%d+)([tu]?)") do
 				local netdev = _swtopo[s.device].netdevs[pnum]
 				if netdev then
-					if not normalifs[netdev] then
-						normalifs[netdev] = interface(netdev)
+					if not nfs[netdev] then
+						nfs[netdev] = interface(netdev)
 					end
 					_switch[netdev] = true
 
@@ -626,8 +612,8 @@ function get_interfaces(self)
 						local vid = tonumber(s.vid or s.vlan)
 						if vid ~= nil and vid >= 0 and vid <= 4095 then
 							local iface = "%s.%d" %{ netdev, vid }
-							if not normalifs[iface] then
-								normalifs[iface] = interface(iface)
+							if not nfs[iface] then
+								nfs[iface] = interface(iface)
 							end
 							_switch[iface] = true
 						end
@@ -636,12 +622,24 @@ function get_interfaces(self)
 			end
 		end)
 
-	for iface in utl.kspairs(normalifs) do
-		ifaces[#ifaces+1] = normalifs[iface]
+	for iface in utl.kspairs(nfs) do
+		ifaces[#ifaces+1] = nfs[iface]
 	end
 
-	for iface in utl.kspairs(wirelessifs) do
-		ifaces[#ifaces+1] = wirelessifs[iface]
+	-- find wifi interfaces
+	local num = { }
+	local wfs = { }
+	_uci:foreach("wireless", "wifi-iface",
+		function(s)
+			if s.device then
+				num[s.device] = num[s.device] and num[s.device] + 1 or 1
+				local i = "%s.network%d" %{ s.device, num[s.device] }
+				wfs[i] = interface(i)
+			end
+		end)
+
+	for iface in utl.kspairs(wfs) do
+		ifaces[#ifaces+1] = wfs[iface]
 	end
 
 	return ifaces
